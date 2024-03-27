@@ -1,0 +1,111 @@
+# Node.js
+# Build a general Node.js project with npm.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/javascript
+
+# Node.js
+# Build a general Node.js project with npm.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/javascript
+
+trigger:
+- main
+
+stages:
+- stage: Build
+  jobs:
+  - job: Build 
+    pool:
+      name: Fronture Onprem
+      demands:
+      - agent.name -equals Faraz-DevOps
+
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '10.x'
+      displayName: 'Install Node.js'
+
+    - script: |
+        npm install
+        npm run build
+        npm install express
+      displayName: 'npm install build and install express'
+
+    - task: CopyFiles@2
+      inputs:
+        SourceFolder: '$(Build.SourcesDirectory)'
+        Contents: |
+          *.json
+          *.mjs
+          node_modules/**
+        TargetFolder: '$(Build.ArtifactStagingDirectory)'
+      displayName: 'Copy project files'
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
+
+    - task: DownloadBuildArtifacts@1
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'drop'
+        downloadPath: '$(Agent.ReleaseDirectory)'
+
+
+- stage: Release
+  condition: false
+  jobs:
+  - job: Release
+    pool:
+      name: Fronture Onprem
+      demands:
+      - agent.name -equals Faraz-DevOps
+
+    steps:
+    - task: DownloadBuildArtifacts@1
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'drop'
+        downloadPath: '$(Build.ArtifactStagingDirectory)'
+
+    - task: PowerShell@2
+      inputs:
+        targetType: 'inline'
+        script: |
+          get-location
+          
+          # Define the content to be written to the file
+          $fileContent = @"
+            ProxyPass /node http://localhost:3000/
+          "@
+          $filePath = "$(Build.ArtifactStagingDirectory)/node-apache.conf"
+          
+          # Write the content to the file
+          Set-Content -Path $filepath -Value $fileContent
+         
+          #Copy the node-apache.conf file to apache
+          Copy-Item -Path $filepath -Destination $(APACHE_ROOT_PATH)/conf/extra -Force
+         
+          #added the new .conf to httpd
+          $filepath2 = "$(APACHE_ROOT_PATH)/conf/httpd.conf"
+          $lineToAdd = "Include conf/extra/node-apache.conf"
+          Add-Content -Path $filepath2 -Value $lineToAdd
+
+    - task: CopyFiles@2
+      condition: false
+      inputs:
+        SourceFolder: '$(Build.ArtifactStagingDirectory)'
+        Contents: '*.conf'
+        TargetFolder: '$(APACHE_ROOT_PATH)/conf/extra'
+    
+    - task: CopyFiles@2
+      condition: false
+      inputs:
+        SourceFolder: '$(System.DefaultWorkingDirectory)/drop'
+        Contents: '**'
+        TargetFolder: '$(APACHE_ROOT_PATH)/htdocs'
